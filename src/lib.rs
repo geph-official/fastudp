@@ -26,6 +26,7 @@ pub struct FastUdpSocket {
     recv_incoming: Receiver<(Vec<u8>, SocketAddr)>,
     send_outgoing: Sender<(Vec<u8>, SocketAddr)>,
     pool: Arc<BufferPool>,
+    std: Arc<UdpSocket>,
 }
 
 impl From<UdpSocket> for FastUdpSocket {
@@ -60,7 +61,13 @@ impl FastUdpSocket {
             recv_incoming,
             send_outgoing,
             pool,
+            std: std.into(),
         }
+    }
+
+    /// Gets a reference to the actual UDP socket within.
+    pub fn get_ref(&self) -> &UdpSocket {
+        &self.std
     }
 
     /// Sends data on the soccket to the given address. On success, returns the number of bytes written.
@@ -92,7 +99,7 @@ fn udp_recv_loop(
     socket: UdpSocket,
     pool: Arc<BufferPool>,
 ) -> Option<()> {
-    socket.set_read_timeout(Some(Duration::from_secs(1)));
+    let _ = socket.set_read_timeout(Some(Duration::from_secs(1)));
     let fd = socket.as_raw_fd();
     let mut buffs = Vec::with_capacity(MAX_RECV_BATCH);
     loop {
