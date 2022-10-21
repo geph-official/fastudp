@@ -1,0 +1,25 @@
+[package]
+name = "fastudp"
+version = "0.1.0"
+edition = "2021"
+description = "fast udp based on recvmmsg and sendmmsg"
+license="ISC"
+repository="https://github.com/geph-official/fastudp"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-channel = "1.7.1"
+concurrent-queue = "1.2.4"
+env_logger = "0.9.1"
+log = "0.4.17"
+nix = {version="0.25.0", features=["socket"]}
+
+[dev-dependencies]
+smolscale="0.3"
+argh="0.1.9"
+anyhow="1"
+smol="1"
+
+[profile.release]
+debug=2
