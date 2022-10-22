@@ -187,7 +187,8 @@ fn udp_send_loop(
                 _lt: PhantomData::default(),
             })
             .collect::<Vec<_>>();
-        let res = nix::sys::socket::sendmmsg(fd, smmsg_buff.iter(), MsgFlags::empty()).unwrap();
-        log::trace!("batch of {}=>{} sends", pkt_buff.len(), res.len());
+        if let Err(err) = nix::sys::socket::sendmmsg(fd, smmsg_buff.iter(), MsgFlags::empty()) {
+            log::error!("error while sendmmsg: {}", err);
+        }
     }
 }
