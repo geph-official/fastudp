@@ -12,6 +12,8 @@ repository="https://github.com/geph-official/fastudp"
 async-channel = "1.7.1"
 concurrent-queue = "1.2.4"
 env_logger = "0.9.1"
+flume = "0.10.14"
+libc = "0.2.135"
 log = "0.4.17"
 nix = {version="0.25.0", features=["socket"]}
 

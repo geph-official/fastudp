@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use async_channel::{Receiver, Sender};
+use flume::{Receiver, Sender};
 use nix::sys::socket::{RecvMmsgData, SockaddrStorage};
 use nix::{
     errno::Errno,
@@ -38,8 +38,8 @@ impl From<UdpSocket> for FastUdpSocket {
 impl FastUdpSocket {
     /// Create a new FastUdpSocket from a standard one
     pub fn from_std(std: UdpSocket) -> Self {
-        let (send_incoming, recv_incoming) = async_channel::bounded(MAX_SEND_BATCH * 2);
-        let (send_outgoing, recv_outgoing) = async_channel::bounded(MAX_RECV_BATCH * 2);
+        let (send_incoming, recv_incoming) = flume::bounded(MAX_SEND_BATCH * 2);
+        let (send_outgoing, recv_outgoing) = flume::bounded(MAX_RECV_BATCH * 2);
         let pool = Arc::new(BufferPool::new());
         {
             let pool = pool.clone();
@@ -72,12 +72,14 @@ impl FastUdpSocket {
 
     /// Sends data on the soccket to the given address. On success, returns the number of bytes written.
     pub async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> std::io::Result<usize> {
-        let v = self.pool.alloc(buf.len());
+        let mut v = self.pool.alloc(buf.len());
+        v.copy_from_slice(buf);
         let n = v.len();
         self.send_outgoing
-            .send((v, addr))
+            .send_async((v, addr))
             .await
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken pipe"))?;
+
         Ok(n)
     }
 
@@ -85,7 +87,7 @@ impl FastUdpSocket {
     pub async fn recv_from(&self, mut buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
         let (vec, addr) = self
             .recv_incoming
-            .recv()
+            .recv_async()
             .await
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken pipe"))?;
         let n = buf.write(&vec)?;
@@ -99,7 +101,7 @@ fn udp_recv_loop(
     socket: UdpSocket,
     pool: Arc<BufferPool>,
 ) -> Option<()> {
-    let _ = socket.set_read_timeout(Some(Duration::from_secs(1)));
+    // let _ = socket.set_read_timeout(Some(Duration::from_secs(1)));
     let fd = socket.as_raw_fd();
     let mut buffs = Vec::with_capacity(MAX_RECV_BATCH);
     loop {
@@ -118,11 +120,12 @@ fn udp_recv_loop(
             let to_iterate = match nix::sys::socket::recvmmsg::<_, SockaddrStorage>(
                 fd,
                 smmsg_buf.iter_mut(),
-                MsgFlags::empty(),
+                unsafe { MsgFlags::from_bits_unchecked(libc::MSG_WAITFORONE) },
                 None,
             ) {
                 Ok(to_iterate) => to_iterate,
                 Err(e) => {
+                    log::warn!("{}", e);
                     if e == Errno::EAGAIN {
                         continue;
                     } else {
@@ -130,6 +133,7 @@ fn udp_recv_loop(
                     }
                 }
             };
+            log::trace!("recv batch {}", to_iterate.len());
             to_iterate
                 .into_iter()
                 .map(|res| (res.bytes, res.address))
@@ -138,7 +142,7 @@ fn udp_recv_loop(
         for ((n, addr), mut buff) in result.into_iter().zip(buffs.drain(..)) {
             if let Some(addr) = addr.and_then(sockaddr_to_socketaddr) {
                 buff.truncate(n);
-                send_incoming.send_blocking((buff, addr)).ok()?
+                send_incoming.send((buff, addr)).ok()?
             }
         }
     }
@@ -166,13 +170,14 @@ fn udp_send_loop(
         for buf in pkt_buff.drain(..) {
             pool.free(buf.0);
         }
-        pkt_buff.push(recv_outgoing.recv_blocking().ok()?);
+        pkt_buff.push(recv_outgoing.recv().ok()?);
         while let Ok(more) = recv_outgoing.try_recv() {
             pkt_buff.push(more);
             if pkt_buff.len() >= MAX_SEND_BATCH {
                 break;
             }
         }
+        log::trace!("READIED batch of {} sends", pkt_buff.len());
         let smmsg_buff = pkt_buff
             .iter()
             .map(|(buf, dest)| SendMmsgData {

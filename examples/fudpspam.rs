@@ -1,6 +1,6 @@
 use std::{
     net::{SocketAddr, UdpSocket},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use argh::FromArgs;
@@ -31,7 +31,8 @@ fn main() -> anyhow::Result<()> {
                 loop {
                     let start = Instant::now();
                     for _ in 0..100_000 {
-                        usock.recv_from(&mut buff).await?;
+                        let a = usock.recv_from(&mut buff).await?;
+                        eprintln!("recv {:?}", a);
                     }
                     let elapsed = start.elapsed();
                     eprintln!(
@@ -48,6 +49,8 @@ fn main() -> anyhow::Result<()> {
             let start = Instant::now();
             for _ in 0..100_000 {
                 usock.send_to(&spam_msg, args.connect).await?;
+                eprintln!("send");
+                smol::Timer::after(Duration::from_secs(1)).await;
             }
             let elapsed = start.elapsed();
             eprintln!(
