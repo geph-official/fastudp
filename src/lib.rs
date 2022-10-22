@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use flume::{Receiver, Sender};
+use async_channel::{Receiver, Sender};
 use nix::sys::socket::{RecvMmsgData, SockaddrStorage};
 use nix::{
     errno::Errno,
@@ -38,8 +38,8 @@ impl From<UdpSocket> for FastUdpSocket {
 impl FastUdpSocket {
     /// Create a new FastUdpSocket from a standard one
     pub fn from_std(std: UdpSocket) -> Self {
-        let (send_incoming, recv_incoming) = flume::bounded(MAX_SEND_BATCH * 2);
-        let (send_outgoing, recv_outgoing) = flume::bounded(MAX_RECV_BATCH * 2);
+        let (send_incoming, recv_incoming) = async_channel::bounded(MAX_SEND_BATCH * 2);
+        let (send_outgoing, recv_outgoing) = async_channel::bounded(MAX_RECV_BATCH * 2);
         let pool = Arc::new(BufferPool::new());
         {
             let pool = pool.clone();
@@ -76,7 +76,7 @@ impl FastUdpSocket {
         v.copy_from_slice(buf);
         let n = v.len();
         self.send_outgoing
-            .send_async((v, addr))
+            .send((v, addr))
             .await
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken pipe"))?;
 
@@ -87,7 +87,7 @@ impl FastUdpSocket {
     pub async fn recv_from(&self, mut buf: &mut [u8]) -> std::io::Result<(usize, SocketAddr)> {
         let (vec, addr) = self
             .recv_incoming
-            .recv_async()
+            .recv()
             .await
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken pipe"))?;
         let n = buf.write(&vec)?;
@@ -142,7 +142,7 @@ fn udp_recv_loop(
         for ((n, addr), mut buff) in result.into_iter().zip(buffs.drain(..)) {
             if let Some(addr) = addr.and_then(sockaddr_to_socketaddr) {
                 buff.truncate(n);
-                send_incoming.send((buff, addr)).ok()?
+                send_incoming.send_blocking((buff, addr)).ok()?
             }
         }
     }
@@ -170,7 +170,7 @@ fn udp_send_loop(
         for buf in pkt_buff.drain(..) {
             pool.free(buf.0);
         }
-        pkt_buff.push(recv_outgoing.recv().ok()?);
+        pkt_buff.push(recv_outgoing.recv_blocking().ok()?);
         while let Ok(more) = recv_outgoing.try_recv() {
             pkt_buff.push(more);
             if pkt_buff.len() >= MAX_SEND_BATCH {
