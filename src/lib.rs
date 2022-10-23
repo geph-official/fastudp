@@ -37,8 +37,8 @@ impl From<UdpSocket> for FastUdpSocket {
 impl FastUdpSocket {
     /// Create a new FastUdpSocket from a standard one
     pub fn from_std(std: UdpSocket) -> Self {
-        let (send_incoming, recv_incoming) = async_channel::bounded(MAX_SEND_BATCH * 2);
-        let (send_outgoing, recv_outgoing) = async_channel::bounded(MAX_RECV_BATCH * 2);
+        let (send_incoming, recv_incoming) = async_channel::bounded(1000);
+        let (send_outgoing, recv_outgoing) = async_channel::bounded(1000);
         let pool = Arc::new(BufferPool::new());
         {
             let pool = pool.clone();
