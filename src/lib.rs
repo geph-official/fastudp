@@ -6,7 +6,6 @@ use std::{
     net::{Ipv4Addr, SocketAddr, UdpSocket},
     os::unix::prelude::AsRawFd,
     sync::Arc,
-    time::Duration,
 };
 
 use async_channel::{Receiver, Sender};
@@ -18,7 +17,7 @@ use nix::{
 use pool::BufferPool;
 
 const MAX_SEND_BATCH: usize = 128;
-const MAX_RECV_BATCH: usize = 128;
+const MAX_RECV_BATCH: usize = 16;
 
 /// A fast, generously-buffered TCP socket backed by a background thread to save on syscalls.
 #[derive(Clone, Debug)]
